@@ -1,6 +1,6 @@
+import os
 from flask import Flask, render_template, request
 import pandas as pd
-import numpy as np
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
@@ -8,15 +8,13 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
-# ===================== KONFIGURASI =====================
 K_VALUE = 5
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 MIN_ROWS = 10
 
-# PErtanyaan yang ada di Kuisoner
 FEATURE_COLS = [
     "Bagaimana Pendapat Saudara Tentang Kesesuaian Persyaratan Pelayanan dengan Jenis Pelayanannya",
     "Bagaimana Pemahaman Saudara Tentang Kemudahan Prosedur Pelayanan di Unit ini?",
@@ -29,42 +27,21 @@ FEATURE_COLS = [
     "Bagaimana Pendapat Saudara Tetang Kecepatan Waktu  dalam Memberikan pelayanan?"
 ]
 
-# Skala LIKERT 1–5 
 RESPONSE_MAPPING_1_5 = {
-    # Kesesuaian
     "Sangat Sesuai": 5, "Sesuai": 4, "Cukup Sesuai": 3, "Kurang Sesuai": 2, "Tidak Sesuai": 1,
-
-    # Kemudahan
     "Sangat Mudah": 5, "Mudah": 4, "Cukup Mudah": 3, "Kurang Mudah": 2, "Tidak Mudah": 1,
-
-    # Kewajaran
     "Sangat Wajar": 5, "Wajar": 4, "Cukup Wajar": 3, "Kurang Wajar": 2, "Tidak Wajar": 1,
-
-    # Biaya/Tarif
     "Gratis": 5, "Murah": 4, "Cukup Mahal": 3, "Mahal": 2, "Sangat Mahal": 1,
-
-    # Produk pelayanan
     "Sangat Baik": 5, "Baik": 4, "Cukup": 3, "Kurang": 2, "Buruk": 1,
-
-    # Kompetensi
     "Sangat Kompeten": 5, "Kompeten": 4, "Cukup Kompeten": 3, "Kurang Kompeten": 2, "Tidak Kompeten": 1,
-
-    # Perilaku petugas
     "Sangat Sopan Dan Ramah": 5, "Sopan Dan Ramah": 4, "Cukup Sopan Dan Ramah": 3,
     "Kurang Sopan Dan Ramah": 2, "Tidak Sopan Dan Ramah": 1,
-
-    # Penanganan pengaduan
     "Dikelola Dengan Baik": 5, "Dikelola Baik": 5, "Dikelola": 4,
     "Berfungsi Kurang Maksimal": 3, "Ada Tetapi Tidak Berfungsi": 2, "Tidak Ada": 1,
-
-    # Kecepatan
     "Sangat Cepat": 5, "Cepat": 4, "Cukup Cepat": 3, "Kurang Cepat": 2, "Tidak Cepat": 1,
-
-    # Kepuasan langsung (kalau muncul)
     "Sangat Puas": 5, "Puas": 4, "Cukup Puas": 3, "Tidak Puas": 2, "Sangat Tidak Puas": 1,
 }
 
-# Membaca file Excel/CSV
 def read_file(file_storage) -> pd.DataFrame:
     filename = (file_storage.filename or "").lower()
     if filename.endswith(".csv"):
@@ -73,8 +50,6 @@ def read_file(file_storage) -> pd.DataFrame:
         return pd.read_excel(file_storage)
     raise ValueError("Format file harus CSV atau XLSX.")
 
-
-    # NOTE: pakai title-case agar mapping konsisten
 def normalize_text_series(s: pd.Series) -> pd.Series:
     return (
         s.astype(str)
@@ -84,7 +59,6 @@ def normalize_text_series(s: pd.Series) -> pd.Series:
         .str.title()
     )
 
-
 def label_from_avg_1_5(avg_scores: pd.Series) -> pd.Series:
     return pd.cut(
         avg_scores,
@@ -92,7 +66,6 @@ def label_from_avg_1_5(avg_scores: pd.Series) -> pd.Series:
         labels=["Kurang", "Cukup", "Baik"],
         include_lowest=True
     ).astype(str)
-
 
 def safe_split(X, y, test_size, random_state):
     y_series = pd.Series(y)
@@ -107,10 +80,8 @@ def safe_split(X, y, test_size, random_state):
         X, y, test_size=test_size, random_state=random_state
     )
 
-
 def preprocess_data(df: pd.DataFrame):
     log = []
-
     log.append("=== TAHAP 1: DATA CLEANING ===")
     original_count = len(df)
 
@@ -129,19 +100,16 @@ def preprocess_data(df: pd.DataFrame):
     if clean_count < MIN_ROWS:
         raise ValueError(f"Data valid terlalu sedikit (minimal {MIN_ROWS} baris). Periksa isi file Excel.")
 
-    log.append("\n=== TAHAP 2: DATA TRANSFORMATION ===")
-
+    log.append("=== TAHAP 2: DATA TRANSFORMATION ===")
     df_num = df_feat.copy()
     unmapped_examples = {}
 
     for col in FEATURE_COLS:
         norm = normalize_text_series(df_num[col])
         mapped = norm.map(RESPONSE_MAPPING_1_5)
-
         mask_unmapped = mapped.isna()
         if mask_unmapped.any():
             unmapped_examples[col] = norm[mask_unmapped].dropna().unique().tolist()[:5]
-
         df_num[col] = mapped
 
     before_drop = len(df_num)
@@ -154,22 +122,23 @@ def preprocess_data(df: pd.DataFrame):
             "Kemungkinan ada jawaban yang belum ada mapping.\n"
         )
         if unmapped_examples:
-            msg += "\nContoh nilai yang belum termapping (per kolom):\n"
+            msg += "Contoh nilai yang belum termapping (per kolom):\n"
             for k, v in list(unmapped_examples.items())[:3]:
                 msg += f"- {k[:45]}... : {v}\n"
         raise ValueError(msg)
 
-    log.append("\n=== TAHAP 3: DATA NORMALIZATION ===")
+    log.append("=== TAHAP 3: DATA NORMALIZATION ===")
     X_raw = df_num.values.astype(float)
     scaler = MinMaxScaler()
     X_norm = scaler.fit_transform(X_raw)
 
-    log.append("\n=== TAHAP 4: LABELING/CLASSIFICATION ===")
+    log.append("=== TAHAP 4: LABELING/CLASSIFICATION ===")
     avg_scores = df_num.mean(axis=1)
     y_all = label_from_avg_1_5(avg_scores)
 
-    log.append("\n=== TAHAP 5: DATA DIVISION ===")
+    log.append("=== TAHAP 5: DATA DIVISION ===")
     X_train, X_test, y_train, y_test = safe_split(X_norm, y_all, TEST_SIZE, RANDOM_STATE)
+
     return {
         "original_count": original_count,
         "valid_count": after_transform,
@@ -182,14 +151,12 @@ def preprocess_data(df: pd.DataFrame):
         "preprocessing_log": log,
     }
 
-def stable_labels(y_all):
+def stable_labels():
     return ["Kurang", "Cukup", "Baik"]
-
 
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", has_result=False)
-
 
 @app.route("/process", methods=["POST"])
 def process():
@@ -208,29 +175,26 @@ def process():
         X_norm = prep["X_norm"]
         y_all = prep["y_all"]
 
-        # ===== KNN =====
         model = KNeighborsClassifier(n_neighbors=K_VALUE)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
 
-        # ===== EVALUASI =====
-        labels_sorted = stable_labels(y_all)
+        labels_sorted = stable_labels()
 
         acc = accuracy_score(y_test, y_pred)
         cm = confusion_matrix(y_test, y_pred, labels=labels_sorted)
-        report = classification_report(y_test, y_pred, labels=labels_sorted, output_dict=True, zero_division=0)
-        
-        # diagram pie chart
+        report = classification_report(
+            y_test, y_pred, labels=labels_sorted, output_dict=True, zero_division=0
+        )
+
         precision = round(report["macro avg"]["precision"] * 100, 2)
-        recall =  round(report["macro avg"]["recall"] * 100, 2)
+        recall = round(report["macro avg"]["recall"] * 100, 2)
         f1_score = round(report["macro avg"]["f1-score"] * 100, 2)
 
-        # Rekap prediksi seluruh data
         all_pred = model.predict(X_norm)
         pred_counts = pd.Series(all_pred).value_counts().to_dict()
         pred_counts = {lab: int(pred_counts.get(lab, 0)) for lab in labels_sorted}
 
-        # render balik ke index (hasil muncul di "Keterangan Sistem")
         return render_template(
             "index.html",
             has_result=True,
@@ -243,9 +207,9 @@ def process():
             train_size=len(X_train),
             test_size=len(X_test),
             acc=round(acc * 100, 2),
-            precision=round(precision, 2),
-            recall=round(recall, 2),
-            f1_score=round(f1_score, 2),
+            precision=precision,
+            recall=recall,
+            f1_score=f1_score,
             labels=labels_sorted,
             cm=cm.tolist(),
             pred_counts=pred_counts,
@@ -254,9 +218,11 @@ def process():
         )
 
     except Exception as e:
-
         return render_template("index.html", has_result=False, error=str(e))
 
+def create_app():
+    return app
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5001, debug=True)
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=False)
